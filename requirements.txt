@@ -2,21 +2,21 @@ cycler==0.11.0
 fonttools==4.33.1
 joblib==1.2.0
 kiwisolver==1.4.2
-llvmlite==0.38.0
+llvmlite==0.39.1  # Updated to a compatible version
 matplotlib==3.5.1
-numba==0.55.2
+numba==0.56.0     # Updated to be compatible with llvmlite
 numpy==1.22.0
 packaging==21.3
 pandas==1.3.5
-Pillow==10.0.1
+Pillow==8.4.0     # Updated to a compatible version
 pyparsing==3.0.8
 python-dateutil==2.8.2
-pytz==2022.1
+pytz==2023.10     # Updated to the latest version
 scikit-learn==1.0.2
 scipy==1.10.0
 seaborn==0.11.2
 six==1.16.0
 threadpoolctl==3.1.0
 torch==1.13.1
-tqdm==4.64.0
-typing_extensions==4.2.0
+tqdm==4.65.0      # Updated to the version you already have
+typing_extensions==4.9.0  # Updated to the version you already have
