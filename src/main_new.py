@@ -15,6 +15,10 @@ from Bidder import *  # EmpiricalShadedBidder, TruthfulBidder
 from BidderAllocation import *  # LogisticTSAllocator, OracleAllocator
 from policy_learning_bidder_with_causal_inference import PolicyLearningBidderWithCausalInference
 
+# Define plot sizes and font sizes
+FIGSIZE = (8, 5)
+FONTSIZE = 14
+
 def parse_kwargs(kwargs):
     parsed = ','.join([f'{key}={value}' for key, value in kwargs.items()])
     return ',' + parsed if parsed else ''
@@ -155,7 +159,7 @@ def simulation_run():
     return iteration_results
 
 def run_simulation(config_file):
-    global num_iter, rounds_per_iter, auction, agent2net_utility, agent2gross_utility, agent2allocation_regret, agent2estimation_regret, agent2overbid_regret, agent2underbid_regret, agent2CTR_RMSE, agent2CTR_bias, agent2gamma, agent2best_expected_value, auction_revenue, FIGSIZE, FONTSIZE
+    global num_iter, rounds_per_iter, auction, agent2net_utility, agent2gross_utility, agent2allocation_regret, agent2estimation_regret, agent2overbid_regret, agent2underbid_regret, agent2CTR_RMSE, agent2CTR_bias, agent2gamma, agent2best_expected_value, auction_revenue
     rng, config, agent_configs, agents2items, agents2item_values, num_runs, max_slots, embedding_size, embedding_var, obs_embedding_size = parse_config(config_file)
     results = []
     for run in range(num_runs):
