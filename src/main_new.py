@@ -73,16 +73,22 @@ def parse_config(path):
     return rng, config, agent_configs, agents2items, agents2item_values, num_runs, max_slots, embedding_size, embedding_var, obs_embedding_size
 
 def instantiate_agents(rng, agent_configs, agents2item_values, agents2items):
-    agents = [
-        Agent(rng=rng,
-              name=agent_config['name'],
-              num_items=agent_config['num_items'],
-              item_values=agents2item_values[agent_config['name']],
-              allocator=eval(f"{agent_config['allocator']['type']}(rng=rng{parse_kwargs(agent_config['allocator']['kwargs'])})"),
-              bidder=eval(f"{agent_config['bidder']['type']}(rng=rng{parse_kwargs(agent_config['bidder']['kwargs'])})"),
-              memory=(0 if 'memory' not in agent_config.keys() else agent_config['memory']))
-        for agent_config in agent_configs
-    ]
+    agents = []
+    for agent_config in agent_configs:
+        kwargs = agent_config['bidder']['kwargs']
+        if 'loss' in kwargs:
+            kwargs['loss'] = eval(kwargs['loss'])
+
+        agent = Agent(
+            rng=rng,
+            name=agent_config['name'],
+            num_items=agent_config['num_items'],
+            item_values=agents2item_values[agent_config['name']],
+            allocator=eval(f"{agent_config['allocator']['type']}(rng=rng{parse_kwargs(agent_config['allocator']['kwargs'])})"),
+            bidder=eval(f"{agent_config['bidder']['type']}(rng=rng{parse_kwargs(kwargs)})"),
+            memory=(0 if 'memory' not in agent_config.keys() else agent_config['memory'])
+        )
+        agents.append(agent)
 
     for agent in agents:
         if isinstance(agent.allocator, OracleAllocator):
