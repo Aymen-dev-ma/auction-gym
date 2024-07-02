@@ -22,11 +22,11 @@
           "kwargs": {
             "gamma_sigma": 0.02,
             "init_gamma": 1.0,
-            "loss": "\"PPO\""
+            "loss": "PPO"
           }
         }
       }
     ],
-    "output_dir": "results/FP_Causal_TS/"
+    "output_dir": "results/FP_Causal_Inference/"
   }
   
