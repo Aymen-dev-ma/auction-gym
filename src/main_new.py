@@ -2,7 +2,6 @@ import argparse
 import json
 import matplotlib.pyplot as plt
 import numpy as np
-import os
 import pandas as pd
 import seaborn as sns
 from collections import defaultdict
@@ -156,11 +155,28 @@ def simulation_run():
     return iteration_results
 
 def run_simulation(config_file):
+    global num_iter, rounds_per_iter, auction, agent2net_utility, agent2gross_utility, agent2allocation_regret, agent2estimation_regret, agent2overbid_regret, agent2underbid_regret, agent2CTR_RMSE, agent2CTR_bias, agent2gamma, agent2best_expected_value, auction_revenue, FIGSIZE, FONTSIZE
     rng, config, agent_configs, agents2items, agents2item_values, num_runs, max_slots, embedding_size, embedding_var, obs_embedding_size = parse_config(config_file)
     results = []
     for run in range(num_runs):
         agents = instantiate_agents(rng, agent_configs, agents2item_values, agents2items)
         auction, num_iter, rounds_per_iter, output_dir = instantiate_auction(rng, config, agents2items, agents2item_values, agents, max_slots, embedding_size, embedding_var, obs_embedding_size)
+
+        # Placeholders for summary statistics per run
+        agent2net_utility = defaultdict(list)
+        agent2gross_utility = defaultdict(list)
+        agent2allocation_regret = defaultdict(list)
+        agent2estimation_regret = defaultdict(list)
+        agent2overbid_regret = defaultdict(list)
+        agent2underbid_regret = defaultdict(list)
+        agent2best_expected_value = defaultdict(list)
+
+        agent2CTR_RMSE = defaultdict(list)
+        agent2CTR_bias = defaultdict(list)
+        agent2gamma = defaultdict(list)
+
+        auction_revenue = []
+
         result = simulation_run()
         results.append(pd.concat(result))
     return results
@@ -171,8 +187,8 @@ def compare_results(baseline_results, causal_results):
 
     fig, ax = plt.subplots(figsize=(12, 8))
 
-    sns.lineplot(data=baseline_df, x='Iteration', y='Net Utility', hue='Name', ax=ax, label='Baseline')
-    sns.lineplot(data=causal_df, x='Iteration', y='Net Utility', hue='Name', ax=ax, label='Causal Inference', linestyle='--')
+    sns.lineplot(data=baseline_df, x='Iteration', y='Net Utility', hue='Name', ax=ax)
+    sns.lineplot(data=causal_df, x='Iteration', y='Net Utility', hue='Name', ax=ax, linestyle='--')
 
     ax.set_title('Comparison of Net Utility Over Time')
     ax.set_ylabel('Net Utility')
@@ -185,8 +201,8 @@ def compare_results(baseline_results, causal_results):
 
     fig, ax = plt.subplots(figsize=(12, 8))
 
-    sns.lineplot(data=baseline_df, x='Iteration', y='Gross Utility', hue='Name', ax=ax, label='Baseline')
-    sns.lineplot(data=causal_df, x='Iteration', y='Gross Utility', hue='Name', ax=ax, label='Causal Inference', linestyle='--')
+    sns.lineplot(data=baseline_df, x='Iteration', y='Gross Utility', hue='Name', ax=ax)
+    sns.lineplot(data=causal_df, x='Iteration', y='Gross Utility', hue='Name', ax=ax, linestyle='--')
 
     ax.set_title('Comparison of Gross Utility Over Time')
     ax.set_ylabel('Gross Utility')
