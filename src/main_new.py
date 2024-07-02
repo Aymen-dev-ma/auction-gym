@@ -16,10 +16,6 @@ from Bidder import *  # EmpiricalShadedBidder, TruthfulBidder
 from BidderAllocation import *  # LogisticTSAllocator, OracleAllocator
 from policy_learning_bidder_with_causal_inference import PolicyLearningBidderWithCausalInference
 
-def parse_kwargs(kwargs):
-    parsed = ','.join([f'{key}={value}' for key, value in kwargs.items()])
-    return ',' + parsed if parsed else ''
-
 def parse_config(path):
     with open(path) as f:
         config = json.load(f)
@@ -73,17 +69,25 @@ def parse_config(path):
 def instantiate_agents(rng, agent_configs, agents2item_values, agents2items):
     agents = []
     for agent_config in agent_configs:
-        kwargs = agent_config['bidder']['kwargs']
-        if 'loss' in kwargs:
-            kwargs['loss'] = eval(kwargs['loss'])
+        allocator = eval(f"{agent_config['allocator']['type']}(rng=rng{parse_kwargs(agent_config['allocator']['kwargs'])})")
+
+        bidder_type = agent_config['bidder']['type']
+        bidder_kwargs = agent_config['bidder']['kwargs']
+
+        if bidder_type == "PolicyLearningBidder":
+            bidder = PolicyLearningBidder(rng=rng, **bidder_kwargs)
+        elif bidder_type == "PolicyLearningBidderWithCausalInference":
+            bidder = PolicyLearningBidderWithCausalInference(rng=rng, **bidder_kwargs)
+        else:
+            raise ValueError(f"Unknown bidder type: {bidder_type}")
 
         agent = Agent(
             rng=rng,
             name=agent_config['name'],
             num_items=agent_config['num_items'],
             item_values=agents2item_values[agent_config['name']],
-            allocator=eval(f"{agent_config['allocator']['type']}(rng=rng{parse_kwargs(agent_config['allocator']['kwargs'])})"),
-            bidder=eval(f"{agent_config['bidder']['type']}(rng=rng{parse_kwargs(kwargs)})"),
+            allocator=allocator,
+            bidder=bidder,
             memory=(0 if 'memory' not in agent_config.keys() else agent_config['memory'])
         )
         agents.append(agent)
@@ -206,24 +210,6 @@ if __name__ == '__main__':
     parser.add_argument('baseline_config', type=str, help='Path to baseline configuration file')
     parser.add_argument('causal_config', type=str, help='Path to causal inference configuration file')
     args = parser.parse_args()
-
-    FIGSIZE = (8, 5)
-    FONTSIZE = 14
-
-    # Placeholders for summary statistics over all runs
-    run2agent2net_utility = {}
-    run2agent2gross_utility = {}
-    run2agent2allocation_regret = {}
-    run2agent2estimation_regret = {}
-    run2agent2overbid_regret = {}
-    run2agent2underbid_regret = {}
-    run2agent2best_expected_value = {}
-
-    run2agent2CTR_RMSE = {}
-    run2agent2CTR_bias = {}
-    run2agent2gamma = {}
-
-    run2auction_revenue = {}
 
     # Run baseline
     baseline_results = run_simulation(args.baseline_config)
