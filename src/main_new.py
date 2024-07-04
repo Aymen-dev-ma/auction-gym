@@ -12,9 +12,14 @@ from tqdm import tqdm
 from Agent import Agent
 from AuctionAllocation import *  # FirstPrice, SecondPrice
 from Auction import Auction
-from Bidder import *  # EmpiricalShadedBidder, TruthfulBidder
+from Bidder import *  # EmpiricalShadedBidder, TruthfulBidder, PolicyLearningBidderWithCausalInference
 from BidderAllocation import *  # LogisticTSAllocator, OracleAllocator
-from policy_learning_bidder_with_causal_inference import PolicyLearningBidderWithCausalInference
+
+
+def parse_kwargs(kwargs):
+    parsed = ','.join([f'{key}={value}' for key, value in kwargs.items()])
+    return ',' + parsed if parsed else ''
+
 
 def parse_config(path):
     with open(path) as f:
@@ -28,6 +33,7 @@ def parse_config(path):
     num_runs = config['num_runs'] if 'num_runs' in config.keys() else 1
 
     # Max. number of slots in every auction round
+    # Multi-slot is currently not fully supported.
     max_slots = 1
 
     # Technical parameters for distribution of latent embeddings
@@ -50,6 +56,7 @@ def parse_config(path):
             num_agents += 1
 
     # First sample item catalog (so it is consistent over different configs with the same seed)
+    # Agent : (item_embedding, item_value)
     agents2items = {
         agent_config['name']: rng.normal(0.0, embedding_var, size=(agent_config['num_items'], embedding_size))
         for agent_config in agent_configs
@@ -66,37 +73,27 @@ def parse_config(path):
 
     return rng, config, agent_configs, agents2items, agents2item_values, num_runs, max_slots, embedding_size, embedding_var, obs_embedding_size
 
+
 def instantiate_agents(rng, agent_configs, agents2item_values, agents2items):
-    agents = []
-    for agent_config in agent_configs:
-        allocator = eval(f"{agent_config['allocator']['type']}(rng=rng{parse_kwargs(agent_config['allocator']['kwargs'])})")
-
-        bidder_type = agent_config['bidder']['type']
-        bidder_kwargs = agent_config['bidder']['kwargs']
-
-        if bidder_type == "PolicyLearningBidder":
-            bidder = PolicyLearningBidder(rng=rng, **bidder_kwargs)
-        elif bidder_type == "PolicyLearningBidderWithCausalInference":
-            bidder = PolicyLearningBidderWithCausalInference(rng=rng, **bidder_kwargs)
-        else:
-            raise ValueError(f"Unknown bidder type: {bidder_type}")
-
-        agent = Agent(
-            rng=rng,
-            name=agent_config['name'],
-            num_items=agent_config['num_items'],
-            item_values=agents2item_values[agent_config['name']],
-            allocator=allocator,
-            bidder=bidder,
-            memory=(0 if 'memory' not in agent_config.keys() else agent_config['memory'])
-        )
-        agents.append(agent)
+    # Store agents to be re-instantiated in subsequent runs
+    # Set up agents
+    agents = [
+        Agent(rng=rng,
+              name=agent_config['name'],
+              num_items=agent_config['num_items'],
+              item_values=agents2item_values[agent_config['name']],
+              allocator=eval(f"{agent_config['allocator']['type']}(rng=rng{parse_kwargs(agent_config['allocator']['kwargs'])})"),
+              bidder=eval(f"{agent_config['bidder']['type']}(rng=rng{parse_kwargs(agent_config['bidder']['kwargs'])})"),
+              memory=(0 if 'memory' not in agent_config.keys() else agent_config['memory']))
+        for agent_config in agent_configs
+    ]
 
     for agent in agents:
         if isinstance(agent.allocator, OracleAllocator):
             agent.allocator.update_item_embeddings(agents2items[agent.name])
 
     return agents
+
 
 def instantiate_auction(rng, config, agents2items, agents2item_values, agents, max_slots, embedding_size, embedding_var, obs_embedding_size):
     return (Auction(rng,
@@ -111,10 +108,19 @@ def instantiate_auction(rng, config, agents2items, agents2item_values, agents, m
                     config['num_participants_per_round']),
             config['num_iter'], config['rounds_per_iter'], config['output_dir'])
 
-def simulation_run():
-    global num_iter, rounds_per_iter, auction, agent2net_utility, agent2gross_utility, agent2allocation_regret, agent2estimation_regret, agent2overbid_regret, agent2underbid_regret, agent2CTR_RMSE, agent2CTR_bias, agent2gamma, agent2best_expected_value, auction_revenue, FIGSIZE, FONTSIZE
 
-    iteration_results = []
+def simulation_run(num_iter, rounds_per_iter, auction):
+    agent2net_utility = defaultdict(list)
+    agent2gross_utility = defaultdict(list)
+    agent2allocation_regret = defaultdict(list)
+    agent2estimation_regret = defaultdict(list)
+    agent2overbid_regret = defaultdict(list)
+    agent2underbid_regret = defaultdict(list)
+    agent2CTR_RMSE = defaultdict(list)
+    agent2CTR_bias = defaultdict(list)
+    agent2gamma = defaultdict(list)
+    agent2best_expected_value = defaultdict(list)
+    auction_revenue = []
 
     for i in range(num_iter):
         print(f'==== ITERATION {i} ====')
@@ -126,14 +132,13 @@ def simulation_run():
         net_utilities = [agent.net_utility for agent in auction.agents]
         gross_utilities = [agent.gross_utility for agent in auction.agents]
 
-        result = pd.DataFrame({'Name': names, 'Net Utility': net_utilities, 'Gross Utility': gross_utilities, 'Iteration': i})
-        iteration_results.append(result)
+        result = pd.DataFrame({'Name': names, 'Net': net_utilities, 'Gross': gross_utilities})
 
         print(result)
         print(f'\tAuction revenue: \t {auction.revenue}')
 
         for agent_id, agent in enumerate(auction.agents):
-            agent.update(iteration=i, plot=True, figsize=FIGSIZE, fontsize=FONTSIZE)
+            agent.update(iteration=i, plot=True, figsize=(10, 6), fontsize=12)
 
             agent2net_utility[agent.name].append(agent.net_utility)
             agent2gross_utility[agent.name].append(agent.gross_utility)
@@ -146,10 +151,10 @@ def simulation_run():
             agent2CTR_RMSE[agent.name].append(agent.get_CTR_RMSE())
             agent2CTR_bias[agent.name].append(agent.get_CTR_bias())
 
-            if isinstance(agent.bidder, PolicyLearningBidder) or isinstance(agent.bidder, PolicyLearningBidderWithCausalInference):
-                agent2gamma[agent.name].append(torch.mean(torch.Tensor(agent.bidder.gammas)).detach().item())
+            if isinstance(agent.bidder, PolicyLearningBidder) or isinstance(agent.bidder, DoublyRobustBidder):
+                agent2gamma[agent.name].append(torch.mean(torch.Tensor(agent.bidder.gammas).detach()).item())
             elif not agent.bidder.truthful:
-                agent2gamma[agent.name].append(np.mean(agent.bidder.gammas))
+                agent2gamma[agent.name].append(np.mean([g.detach().numpy() if isinstance(g, torch.Tensor) else g for g in agent.bidder.gammas]))
 
             best_expected_value = np.mean([opp.best_expected_value for opp in agent.logs])
             agent2best_expected_value[agent.name].append(best_expected_value)
@@ -161,61 +166,87 @@ def simulation_run():
         auction_revenue.append(auction.revenue)
         auction.clear_revenue()
 
-    return iteration_results
+    return agent2net_utility, agent2gross_utility, auction_revenue
 
-def run_simulation(config_file):
-    rng, config, agent_configs, agents2items, agents2item_values, num_runs, max_slots, embedding_size, embedding_var, obs_embedding_size = parse_config(config_file)
-    results = []
-    for run in range(num_runs):
-        agents = instantiate_agents(rng, agent_configs, agents2item_values, agents2items)
-        auction, num_iter, rounds_per_iter, output_dir = instantiate_auction(rng, config, agents2items, agents2item_values, agents, max_slots, embedding_size, embedding_var, obs_embedding_size)
-        result = simulation_run()
-        results.append(pd.concat(result))
-    return results
 
-def compare_results(baseline_results, causal_results):
-    baseline_df = pd.concat(baseline_results)
-    causal_df = pd.concat(causal_results)
+def measure_per_agent2df(run2agent2measure, measure_name):
+    df_rows = {'Run': [], 'Agent': [], 'Iteration': [], measure_name: []}
+    for run, agent2measure in run2agent2measure.items():
+        for agent, measures in agent2measure.items():
+            for iteration, measure in enumerate(measures):
+                df_rows['Run'].append(run)
+                df_rows['Agent'].append(agent)
+                df_rows['Iteration'].append(iteration)
+                df_rows[measure_name].append(measure)
+    return pd.DataFrame(df_rows)
 
-    fig, ax = plt.subplots(figsize=(12, 8))
 
-    sns.lineplot(data=baseline_df, x='Iteration', y='Net Utility', hue='Name', ax=ax, label='Baseline')
-    sns.lineplot(data=causal_df, x='Iteration', y='Net Utility', hue='Name', ax=ax, label='Causal Inference', linestyle='--')
+def plot_overlayed_line_plots(run2agent2measure, measure_name):
+    df = measure_per_agent2df(run2agent2measure, measure_name)
 
-    ax.set_title('Comparison of Net Utility Over Time')
-    ax.set_ylabel('Net Utility')
-    ax.set_xlabel('Iteration')
-    ax.legend(title='Approach')
-    plt.grid(True)
+    fig, axes = plt.subplots(figsize=(10, 6))
+    plt.title(f'{measure_name} Over Time', fontsize=14)
+    sns.lineplot(data=df, x="Iteration", y=measure_name, hue="Agent", ax=axes)
+    plt.xticks(fontsize=12)
+    plt.ylabel(f'{measure_name}', fontsize=14)
+    plt.grid(True, 'major', 'y', ls='--', lw=.5, c='k', alpha=.3)
     plt.tight_layout()
-    plt.savefig('comparison_net_utility.png')
+    plt.savefig(f"results/{measure_name.replace(' ', '_')}_overlayed_line_plot.pdf", bbox_inches='tight')
     plt.show()
+    return df
 
-    fig, ax = plt.subplots(figsize=(12, 8))
 
-    sns.lineplot(data=baseline_df, x='Iteration', y='Gross Utility', hue='Name', ax=ax, label='Baseline')
-    sns.lineplot(data=causal_df, x='Iteration', y='Gross Utility', hue='Name', ax=ax, label='Causal Inference', linestyle='--')
+def plot_bar_with_error_bars(run2agent2measure, measure_name):
+    df = measure_per_agent2df(run2agent2measure, measure_name)
 
-    ax.set_title('Comparison of Gross Utility Over Time')
-    ax.set_ylabel('Gross Utility')
-    ax.set_xlabel('Iteration')
-    ax.legend(title='Approach')
-    plt.grid(True)
+    summary_df = df.groupby('Agent')[measure_name].agg(['mean', 'std']).reset_index()
+
+    fig, axes = plt.subplots(figsize=(10, 6))
+    plt.title(f'{measure_name} Comparison', fontsize=14)
+    sns.barplot(data=summary_df, x="Agent", y="mean", yerr=summary_df["std"], ax=axes)
+    plt.ylabel(f'{measure_name} (Mean ± Std)', fontsize=14)
+    plt.grid(True, 'major', 'y', ls='--', lw=.5, c='k', alpha=.3)
     plt.tight_layout()
-    plt.savefig('comparison_gross_utility.png')
+    plt.savefig(f"results/{measure_name.replace(' ', '_')}_bar_plot.pdf", bbox_inches='tight')
     plt.show()
+    return summary_df
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('baseline_config', type=str, help='Path to baseline configuration file')
-    parser.add_argument('causal_config', type=str, help='Path to causal inference configuration file')
+    parser.add_argument('config', type=str, help='Path to experiment configuration file')
     args = parser.parse_args()
 
-    # Run baseline
-    baseline_results = run_simulation(args.baseline_config)
+    rng, config, agent_configs, agents2items, agents2item_values, num_runs, max_slots, embedding_size, embedding_var, obs_embedding_size = parse_config(args.config)
 
-    # Run causal inference
-    causal_results = run_simulation(args.causal_config)
+    run2agent2net_utility = {}
+    run2agent2gross_utility = {}
+    run2agent2allocation_regret = {}
+    run2agent2estimation_regret = {}
+    run2agent2overbid_regret = {}
+    run2agent2underbid_regret = {}
+    run2agent2best_expected_value = {}
 
-    # Compare results
-    compare_results(baseline_results, causal_results)
+    run2agent2CTR_RMSE = {}
+    run2agent2CTR_bias = {}
+    run2agent2gamma = {}
+
+    run2auction_revenue = {}
+
+    for run in range(num_runs):
+        agents = instantiate_agents(rng, agent_configs, agents2item_values, agents2items)
+        auction, num_iter, rounds_per_iter, output_dir = instantiate_auction(rng, config, agents2items, agents2item_values, agents, max_slots, embedding_size, embedding_var, obs_embedding_size)
+
+        agent2net_utility, agent2gross_utility, auction_revenue = simulation_run(num_iter, rounds_per_iter, auction)
+
+        run2agent2net_utility[run] = agent2net_utility
+        run2agent2gross_utility[run] = agent2gross_utility
+        run2auction_revenue[run] = auction_revenue
+
+    plot_overlayed_line_plots(run2agent2net_utility, 'Net Utility')
+    plot_overlayed_line_plots(run2agent2gross_utility, 'Gross Utility')
+    plot_overlayed_line_plots(run2auction_revenue, 'Auction Revenue')
+
+    plot_bar_with_error_bars(run2agent2net_utility, 'Net Utility')
+    plot_bar_with_error_bars(run2agent2gross_utility, 'Gross Utility')
+    plot_bar_with_error_bars(run2auction_revenue, 'Auction Revenue')

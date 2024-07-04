@@ -1,0 +1,30 @@
+{
+    "random_seed": 0,
+    "num_runs": 1,
+    "num_iter": 10,
+    "rounds_per_iter": 1000,
+    "num_participants_per_round": 2,
+    "embedding_size": 5,
+    "embedding_var": 1.0,
+    "obs_embedding_size": 4,
+    "allocation": "FirstPrice",
+    "agents": [
+      {
+        "name": "Causal Inference Agent",
+        "num_items": 12,
+        "allocator": {
+          "type": "OracleAllocator",
+          "kwargs": {}
+        },
+        "bidder": {
+          "type": "CausalInferenceBidder",
+          "kwargs": {
+            "gamma_sigma": 0.02,
+            "init_gamma": 1.0
+          }
+        }
+      }
+    ],
+    "output_dir": "results/causal_inference/"
+  }
+  
