@@ -2,7 +2,7 @@ import numpy as np
 from BidderAllocation import PyTorchLogisticRegressionAllocator, OracleAllocator
 from Impression import ImpressionOpportunity
 from Models import sigmoid
-from vae_lstm import VAELSTM  # Ensure you import the VAE-LSTM model here
+from vae_lstm import VAELSTM
 
 class Agent:
     def __init__(self, rng, name, num_items, item_values, allocator, bidder, vae=None, memory=0):
