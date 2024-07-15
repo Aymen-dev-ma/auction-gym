@@ -1,45 +1,39 @@
 {
-    "random_seed": 0,
-    "num_runs": 3,
-    "num_iter": 20,
-    "rounds_per_iter": 10000,
-    "num_participants_per_round": 2,
-    "embedding_size": 5,
-    "embedding_var": 1.0,
-    "obs_embedding_size": 4,
-    "allocation": "SecondPrice",
-    "agents": [
-      {
-        "name": "VAELSTM Bidder",
-        "num_copies": 3,
-        "num_items": 12,
-        "allocator": {
-          "type": "PyTorchLogisticRegressionAllocator",
-          "kwargs": {"embedding_size": 4, "num_items": 12}
-        },
-        "bidder": {
-          "type": "VAELSTMBidder",
-          "kwargs": {
-            "vae_input_dim": 4,
-            "vae_hidden_dim": 128,
-            "vae_latent_dim": 32
-          }
-        }
+  "random_seed": 0,
+  "num_runs": 3,
+  "num_iter" : 20,
+  "rounds_per_iter": 10000,
+  "num_participants_per_round": 2,
+  "embedding_size": 5,
+  "embedding_var": 1.0,
+  "obs_embedding_size": 4,
+  "allocation": "SecondPrice",
+  "agents": [ {
+    "name": "VAE-LSTM Agent",
+    "num_copies": 3,
+    "num_items": 12,
+      "allocator": {
+        "type": "PyTorchLogisticRegressionAllocator",
+        "kwargs": {"embedding_size": 4, "num_items": 12}
       },
-      {
-        "name": "Vanilla RL",
-        "num_copies": 3,
-        "num_items": 12,
-        "allocator": {
-          "type": "PyTorchLogisticRegressionAllocator",
-          "kwargs": {"embedding_size": 4, "num_items": 12}
-        },
-        "bidder": {
-          "type": "VanillaRL",
-          "kwargs": {}
-        }
+      "bidder": {
+        "type": "VAELSTMBidder",
+        "kwargs": {"vae_input_dim": 4, "vae_hidden_dim": 8, "vae_latent_dim": 4}
       }
-    ],
-    "output_dir": "results/VAELSTM_vs_RL/"
-  }
-  
+    },
+    {
+      "name": "Vanilla RL Agent",
+      "num_copies": 3,
+      "num_items": 12,
+      "allocator": {
+        "type": "PyTorchLogisticRegressionAllocator",
+        "kwargs": {"embedding_size": 4, "num_items": 12}
+      },
+      "bidder": {
+        "type": "VanillaRL",
+        "kwargs": {"model": "some_model", "optimizer": "some_optimizer", "criterion": "some_criterion"}
+      }
+    }
+  ],
+  "output_dir": "results/SP_VAE_LSTM/"
+}
