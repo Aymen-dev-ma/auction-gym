@@ -131,7 +131,107 @@ class VAELSTMBidder(Bidder):
         pass
 
 # Additional Bidder classes (e.g., PolicyLearningBidder, DoublyRobustBidder) should be added below as needed.
+class VanillaRL(Bidder):
+    def __init__(self, rng, state_size=10, action_size=1, hidden_size=64, lr=0.01, gamma=0.99):
+        super(VanillaRL, self).__init__(rng)
+        self.state_size = state_size
+        self.action_size = action_size
+        self.hidden_size = hidden_size
+        self.lr = lr
+        self.gamma = gamma
 
+        self.model = nn.Sequential(
+            nn.Linear(state_size, hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, action_size)
+        )
+
+        self.optimizer = optim.Adam(self.model.parameters(), lr=lr)
+        self.criterion = nn.MSELoss()
+        self.memory = []
+
+    def bid(self, value, context, estimated_CTR):
+        state = torch.tensor(context, dtype=torch.float32)
+        with torch.no_grad():
+            action = self.model(state).item()
+        bid = value * estimated_CTR * action
+        self.memory.append((state, action, bid))
+        return bid
+
+    def update(self, contexts, values, bids, prices, outcomes, estimated_CTRs, won_mask, iteration, plot, figsize, fontsize, name):
+        for state, action, bid in self.memory:
+            reward = (values[won_mask] * outcomes[won_mask]).mean() - prices[won_mask].mean()
+            q_value = reward + self.gamma * self.model(state).detach()
+            loss = self.criterion(self.model(state), q_value)
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+
+        if plot:
+            fig, ax = plt.subplots(figsize=figsize)
+            plt.suptitle(name, fontsize=fontsize + 2)
+            plt.title(f'Iteration: {iteration}', fontsize=fontsize)
+            plt.plot(range(len(self.memory)), [m[2] for m in self.memory], label='Bids')
+            plt.xlabel('Iteration', fontsize=fontsize)
+            plt.ylabel('Bid Value', fontsize=fontsize)
+            plt.xticks(fontsize=fontsize - 2)
+            plt.yticks(fontsize=fontsize - 2)
+            plt.legend(fontsize=fontsize)
+            plt.tight_layout()
+            plt.show()
+
+    def clear_logs(self, memory):
+        self.memory = self.memory[-memory:] if memory else []
+
+class VAELSTMBidder(Bidder):
+    def __init__(self, rng, vae_input_dim, vae_hidden_dim, vae_latent_dim, lstm_input_dim, lstm_hidden_dim, lstm_output_dim, lr=0.01, gamma=0.99):
+        super(VAELSTMBidder, self).__init__(rng)
+        self.vae = VAELSTM(vae_input_dim, vae_hidden_dim, vae_latent_dim)
+        self.model = nn.LSTM(lstm_input_dim, lstm_hidden_dim, batch_first=True)
+        self.output_layer = nn.Linear(lstm_hidden_dim, lstm_output_dim)
+        self.optimizer = optim.Adam(list(self.model.parameters()) + list(self.output_layer.parameters()), lr=lr)
+        self.criterion = nn.MSELoss()
+        self.gamma = gamma
+        self.memory = []
+
+    def bid(self, value, context, estimated_CTR):
+        # Encode context using VAE
+        context_tensor = torch.tensor(context, dtype=torch.float32).unsqueeze(0)
+        encoded_context, _ = self.vae.encode(context_tensor)
+        encoded_context = encoded_context.detach().numpy()
+
+        # Use encoded context with LSTM-AC model to generate bid
+        encoded_context_tensor = torch.tensor(encoded_context, dtype=torch.float32).unsqueeze(0)
+        lstm_out, _ = self.model(encoded_context_tensor)
+        action = self.output_layer(lstm_out).item()
+        bid = value * estimated_CTR * action
+        self.memory.append((encoded_context_tensor, action, bid))
+        return bid
+
+    def update(self, contexts, values, bids, prices, outcomes, estimated_CTRs, won_mask, iteration, plot, figsize, fontsize, name):
+        for encoded_context_tensor, action, bid in self.memory:
+            reward = (values[won_mask] * outcomes[won_mask]).mean() - prices[won_mask].mean()
+            q_value = reward + self.gamma * self.output_layer(self.model(encoded_context_tensor)[0]).detach()
+            loss = self.criterion(self.output_layer(self.model(encoded_context_tensor)[0]), q_value)
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+
+        if plot:
+            fig, ax = plt.subplots(figsize=figsize)
+            plt.suptitle(name, fontsize=fontsize + 2)
+            plt.title(f'Iteration: {iteration}', fontsize=fontsize)
+            plt.plot(range(len(self.memory)), [m[2] for m in self.memory], label='Bids')
+            plt.xlabel('Iteration', fontsize=fontsize)
+            plt.ylabel('Bid Value', fontsize=fontsize)
+            plt.xticks(fontsize=fontsize - 2)
+            plt.yticks(fontsize=fontsize - 2)
+            plt.legend(fontsize=fontsize)
+            plt.tight_layout()
+            plt.show()
+
+    def clear_logs(self, memory):
+        self.memory = self.memory[-memory:] if memory else []
 class PolicyLearningBidderWithCausalInference(Bidder):
     def __init__(self, rng, gamma_sigma, loss, init_gamma=1.0):
         self.gamma_sigma = gamma_sigma
