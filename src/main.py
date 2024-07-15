@@ -1,8 +1,10 @@
 import argparse
 import json
+import matplotlib.pyplot as plt
 import numpy as np
 import os
 import pandas as pd
+import seaborn as sns
 from collections import defaultdict
 from copy import deepcopy
 from tqdm import tqdm
@@ -10,9 +12,13 @@ from tqdm import tqdm
 from Agent import Agent
 from AuctionAllocation import FirstPrice, SecondPrice
 from Auction import Auction
-from Bidder import EmpiricalShadedBidder, TruthfulBidder, VanillaRL, VAELSTMBidder  # Ensure correct imports
+from Bidder import EmpiricalShadedBidder, TruthfulBidder, VanillaRL, VAELSTMBidder
 from BidderAllocation import PyTorchLogisticRegressionAllocator, OracleAllocator
 from vae_lstm import VAELSTM  # Ensure correct import
+
+def parse_kwargs(kwargs):
+    parsed = ','.join([f'{key}={value}' for key, value in kwargs.items()])
+    return ',' + parsed if parsed else ''
 
 def parse_config(path):
     with open(path) as f:
@@ -222,13 +228,12 @@ if __name__ == '__main__':
     shading_factor_df = plot_measure_per_agent(run2agent2gamma, 'Shading Factors')
     def measure2df(run2measure, measure_name):
         df_rows = {'Run': [], 'Iteration': [], measure_name: []}
-                for run, measures in run2measure.items():
+        for run, measures in run2measure.items():
             for iteration, measure in enumerate(measures):
                 df_rows['Run'].append(run)
                 df_rows['Iteration'].append(iteration)
                 df_rows[measure_name].append(measure)
         return pd.DataFrame(df_rows)
-
     def plot_measure_overall(run2measure, measure_name):
         if type(run2measure) != pd.DataFrame:
             df = measure2df(run2measure, measure_name)
@@ -249,27 +254,16 @@ if __name__ == '__main__':
         plt.tight_layout()
         plt.savefig(f"{output_dir}/{measure_name.replace(' ', '_')}_{rounds_per_iter}_rounds_{num_iter}_iters_{num_runs}_runs_{obs_embedding_size}_emb_of_{embedding_size}.pdf", bbox_inches='tight')
         return df
-
     auction_revenue_df = plot_measure_overall(run2auction_revenue, 'Auction Revenue')
     net_utility_df_overall = net_utility_df.groupby(['Run', 'Iteration'])['Net Utility'].sum().reset_index().rename(columns={'Net Utility': 'Social Surplus'})
     plot_measure_overall(net_utility_df_overall, 'Social Surplus')
     gross_utility_df_overall = gross_utility_df.groupby(['Run', 'Iteration'])['Gross Utility'].sum().reset_index().rename(columns={'Gross Utility': 'Social Welfare'})
     plot_measure_overall(gross_utility_df_overall, 'Social Welfare')
-
     auction_revenue_df['Measure Name'] = 'Auction Revenue'
     net_utility_df_overall['Measure Name'] = 'Social Surplus'
     gross_utility_df_overall['Measure Name'] = 'Social Welfare'
-
     columns = ['Run', 'Iteration', 'Measure', 'Measure Name']
     auction_revenue_df.columns = columns
     net_utility_df_overall.columns = columns
     gross_utility_df_overall.columns = columns
-
     pd.concat((auction_revenue_df, net_utility_df_overall, gross_utility_df_overall)).to_csv(f'{output_dir}/results_{rounds_per_iter}_rounds_{num_iter}_iters_{num_runs}_runs_{obs_embedding_size}_emb_of_{embedding_size}.csv', index=False)
-
-       
-
-
-
-
-
