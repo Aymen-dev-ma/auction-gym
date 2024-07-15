@@ -80,3 +80,4 @@ class OracleAllocator(Allocator):
 
     def estimate_CTR(self, context):
         return sigmoid(self.item_embeddings @ context)
+

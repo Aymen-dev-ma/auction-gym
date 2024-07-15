@@ -18,8 +18,8 @@ class ImpressionOpportunity:
     won: np.bool
 
     def set_true_CTR(self, best_expected_value, true_CTR):
-        self.best_expected_value = best_expected_value  # Best possible CTR (to compute regret from ad allocation)
-        self.true_CTR = true_CTR  # True CTR for the chosen ad
+        self.best_expected_value = best_expected_value
+        self.true_CTR = true_CTR
 
     def set_price_outcome(self, price, second_price, outcome, won=True):
         self.price = price

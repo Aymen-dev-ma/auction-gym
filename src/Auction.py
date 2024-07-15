@@ -1,77 +1,83 @@
-from AuctionAllocation import AllocationMechanism
-from Bidder import Bidder
-
+import matplotlib.pyplot as plt
 import numpy as np
+import torch
+from sklearn.metrics import log_loss, roc_auc_score
+from sklearn.model_selection import train_test_split
+from tqdm import tqdm
 
-from BidderAllocation import OracleAllocator
-from Models import sigmoid
+from Models import PyTorchLogisticRegression, sigmoid
 
-class Auction:
-    ''' Base class for auctions '''
-    def __init__(self, rng, allocation, agents, agent2items, agents2item_values, max_slots, embedding_size, embedding_var, obs_embedding_size, num_participants_per_round):
+
+class Allocator:
+    """ Base class for an allocator """
+
+    def __init__(self, rng):
         self.rng = rng
-        self.allocation = allocation
-        self.agents = agents
-        self.max_slots = max_slots
-        self.revenue = .0
 
-        self.agent2items = agent2items
-        self.agents2item_values = agents2item_values
+    def update(self, contexts, items, outcomes, iteration, plot, figsize, fontsize, name):
+        pass
 
-        self.embedding_size = embedding_size
-        self.embedding_var = embedding_var
 
-        self.obs_embedding_size = obs_embedding_size
+class PyTorchLogisticRegressionAllocator(Allocator):
+    """ An allocator that estimates P(click) with Logistic Regression implemented in PyTorch"""
 
-        self.num_participants_per_round = num_participants_per_round
+    def __init__(self, rng, embedding_size, num_items, thompson_sampling=True):
+        self.response_model = PyTorchLogisticRegression(n_dim=embedding_size, n_items=num_items)
+        self.thompson_sampling = thompson_sampling
+        super(PyTorchLogisticRegressionAllocator, self).__init__(rng)
 
-    def simulate_opportunity(self):
-        # Sample the number of slots uniformly between [1, max_slots]
-        num_slots = self.rng.integers(1, self.max_slots + 1)
+    def update(self, contexts, items, outcomes, iteration, plot, figsize, fontsize, name):
+        # Rename
+        X, A, y = contexts, items, outcomes
 
-        # Sample a true context vector
-        true_context = np.concatenate((self.rng.normal(0, self.embedding_var, size=self.embedding_size), [1.0]))
+        if len(y) < 2:
+            return
 
-        # Mask true context into observable context
-        obs_context = np.concatenate((true_context[:self.obs_embedding_size], [1.0]))
+        # Fit the model
+        self.response_model.train()
+        epochs = 8192 * 2
+        lr = 2e-3
+        optimizer = torch.optim.Adam(self.response_model.parameters(), lr=lr)
+        scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', factor=0.5)
 
-        # At this point, the auctioneer solicits bids from
-        # the list of bidders that might want to compete.
-        bids = []
-        CTRs = []
-        participating_agents_idx = self.rng.choice(len(self.agents), self.num_participants_per_round, replace=False)
-        participating_agents = [self.agents[idx] for idx in participating_agents_idx]
-        for agent in participating_agents:
-            # Get the bid and the allocated item
-            if isinstance(agent.allocator, OracleAllocator):
-                bid, item = agent.bid(true_context)
-            else:
-                bid, item = agent.bid(obs_context)
-            bids.append(bid)
-            # Compute the true CTRs for items in this agent's catalogue
-            true_CTR = sigmoid(true_context @ self.agent2items[agent.name].T)
-            agent.logs[-1].set_true_CTR(np.max(true_CTR * self.agents2item_values[agent.name]), true_CTR[item])
-            CTRs.append(true_CTR[item])
-        bids = np.array(bids)
-        CTRs = np.array(CTRs)
+        X, A, y = torch.Tensor(X), torch.LongTensor(A), torch.Tensor(y)
+        losses = []
+        for epoch in tqdm(range(int(epochs)), desc=f'{name}'):
+            optimizer.zero_grad()  # Setting our stored gradients equal to zero
+            loss = self.response_model.loss(torch.squeeze(self.response_model.predict_item(X, A)), y)
+            loss.backward()  # Computes the gradient of the given tensor w.r.t. the weights/bias
+            optimizer.step()  # Updates weights and biases with the optimizer (SGD)
+            losses.append(loss.item())
+            scheduler.step(loss)
 
-        # Now we have bids, we need to somehow allocate slots
-        # "second_prices" tell us how much lower the winner could have gone without changing the outcome
-        winners, prices, second_prices = self.allocation.allocate(bids, num_slots)
+            if epoch > 1024 and np.abs(losses[-100] - losses[-1]) < 1e-6:
+                print(f'Stopping at Epoch {epoch}')
+                break
 
-        # Bidders only obtain value when they get their outcome
-        # Either P(view), P(click | view, ad), P(conversion | click, view, ad)
-        # For now, look at P(click | ad) * P(view)
-        outcomes = self.rng.binomial(1, CTRs[winners])
+        # Laplace Approximation for variance q
+        with torch.no_grad():
+            for item in range(self.response_model.m.shape[0]):
+                item_mask = items == item
+                X_item = torch.Tensor(contexts[item_mask])
+                self.response_model.laplace_approx(X_item, item)
+            self.response_model.update_prior()
 
-        # Let bidders know what they're being charged for
-        for slot_id, (winner, price, second_price, outcome) in enumerate(zip(winners, prices, second_prices, outcomes)):
-            for agent_id, agent in enumerate(participating_agents):
-                if agent_id == winner:
-                    agent.charge(price, second_price, bool(outcome))
-                else:
-                    agent.set_price(price)
-            self.revenue += price
+        self.response_model.eval()
 
-    def clear_revenue(self):
-        self.revenue = 0.0
+    def estimate_CTR(self, context, sample=True):
+        return self.response_model(torch.from_numpy(context.astype(np.float32)), sample=(self.thompson_sampling and sample)).detach().numpy()
+
+
+class OracleAllocator(Allocator):
+    """ An allocator that acts based on the true P(click)"""
+
+    def __init__(self, rng):
+        self.item_embeddings = None
+        super(OracleAllocator, self).__init__(rng)
+
+    def update_item_embeddings(self, item_embeddings):
+        self.item_embeddings = item_embeddings
+
+    def estimate_CTR(self, context):
+        return sigmoid(self.item_embeddings @ context)
+

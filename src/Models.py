@@ -2,19 +2,20 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from numba import jit
-from scipy.optimize import minimize
 from torch.nn import functional as F
 from tqdm import tqdm
-
 
 @jit(nopython=True)
 def sigmoid(x):
     return 1.0 / (1.0 + np.exp(-x))
 
+<<<<<<< Updated upstream
 # This is an implementation of Algorithm 3 (Regularised Bayesian Logistic Regression with a Laplace Approximation)
 # from "An Empirical Evaluation of Thompson Sampling" by Olivier Chapelle & Lihong Li
 # https://proceedings.neurips.cc/paper/2011/file/e53a0a2978c28872a4505bdb51db06dc-Paper.pdf
 
+=======
+>>>>>>> Stashed changes
 class PyTorchLogisticRegression(torch.nn.Module):
     def __init__(self, n_dim, n_items):
         super(PyTorchLogisticRegression, self).__init__()
@@ -47,7 +48,6 @@ class PyTorchLogisticRegression(torch.nn.Module):
     def update_prior(self):
         self.prev_iter_m = self.m.detach().clone()
 
-
 class PyTorchWinRateEstimator(torch.nn.Module):
     def __init__(self):
         super(PyTorchWinRateEstimator, self).__init__()
@@ -60,7 +60,6 @@ class PyTorchWinRateEstimator(torch.nn.Module):
 
     def forward(self, x):
         return self.model(x)
-
 
 class BidShadingPolicy(torch.nn.Module):
     def __init__(self):
@@ -88,7 +87,6 @@ class BidShadingPolicy(torch.nn.Module):
         propensity = torch.exp(dist.log_prob(sampled_value))
         sampled_value = torch.clip(sampled_value, min=0.0, max=1.0)
         return sampled_value, propensity
-
 
 class BidShadingContextualBandit(torch.nn.Module):
     def __init__(self, loss, winrate_model=None):
@@ -161,7 +159,10 @@ class BidShadingContextualBandit(torch.nn.Module):
         sigma = torch.nn.Softplus()(self.sigma_linear_out(torch.nn.Softplus()(x))) + self.min_sigma
         mu = mu.squeeze()
         sigma = sigma.squeeze()
+<<<<<<< Updated upstream
         # Compute the density for gamma under a Gaussian centered at mu -- prevent overflow
+=======
+>>>>>>> Stashed changes
         return mu, sigma, torch.clip(torch.exp(-((mu - gamma) / sigma)**2/2) / (sigma * np.sqrt(2 * np.pi)), min=1e-30)
 
     def loss(self, observed_context, observed_gamma, logging_propensity, utility, utility_estimates=None, winrate_model=None, KL_weight=5e-2, importance_weight_clipping_eps=torch.inf):
@@ -182,8 +183,11 @@ class BidShadingContextualBandit(torch.nn.Module):
             importance_weights = target_propensities / logging_propensity
             expected_utility = torch.mean(importance_weights * utility)
             KLdiv = (sigma_gamma_target**2 + (mean_gamma_target - observed_gamma)**2) / (2 * sigma_gamma_target**2) - 0.5
+<<<<<<< Updated upstream
             # Simpler proxy for KL divergence
             # KLdiv = (mean_gamma_target - observed_gamma)**2
+=======
+>>>>>>> Stashed changes
             return - expected_utility + KLdiv.mean() * KL_weight
 
         elif self.loss_name == 'PPO':
@@ -197,9 +201,13 @@ class BidShadingContextualBandit(torch.nn.Module):
 
         elif self.loss_name == 'Doubly Robust':
             importance_weights = target_propensities / logging_propensity
+<<<<<<< Updated upstream
 
             DR_IPS = (utility - utility_estimates) * torch.clip(importance_weights, min=1.0/importance_weight_clipping_eps, max=importance_weight_clipping_eps)
 
+=======
+            DR_IPS = (utility - utility_estimates) * torch.clip(importance_weights, min=1.0/importance_weight_clipping_eps, max=importance_weight_clipping_eps)
+>>>>>>> Stashed changes
             dist = torch.distributions.normal.Normal(
                 mean_gamma_target,
                 sigma_gamma_target
@@ -207,12 +215,18 @@ class BidShadingContextualBandit(torch.nn.Module):
 
             sampled_gamma = torch.clip(dist.rsample(), min=0.0, max=1.0)
             features_for_p_win = torch.hstack((observed_context, sampled_gamma.reshape(-1,1)))
+<<<<<<< Updated upstream
 
             W = winrate_model(features_for_p_win).squeeze()
 
             V = observed_context[:,0].squeeze() * observed_context[:,1].squeeze()
             P = observed_context[:,0].squeeze() * observed_context[:,1].squeeze() * sampled_gamma
 
+=======
+            W = winrate_model(features_for_p_win).squeeze()
+            V = observed_context[:,0].squeeze() * observed_context[:,1].squeeze()
+            P = observed_context[:,0].squeeze() * observed_context[:,1].squeeze() * sampled_gamma
+>>>>>>> Stashed changes
             DR_DM = W * (V - P)
 
             return -(DR_IPS + DR_DM).mean()
