@@ -1,9 +1,11 @@
 import numpy as np
-from DeconfounderAllocator import DeconfounderAllocator
+from AuctionAllocation import AllocationMechanism, FirstPrice, SecondPrice
 from Impression import ImpressionOpportunity
+from Bidder import Bidder
+from BidderAllocation import OracleAllocator
+from Models import sigmoid
 
 class Auction:
-    ''' Base class for auctions '''
     def __init__(self, rng, allocation, agents, agent2items, agents2item_values, max_slots, embedding_size, embedding_var, obs_embedding_size, num_participants_per_round):
         self.rng = rng
         self.allocation = allocation
@@ -26,7 +28,7 @@ class Auction:
         participating_agents_idx = self.rng.choice(len(self.agents), self.num_participants_per_round, replace=False)
         participating_agents = [self.agents[idx] for idx in participating_agents_idx]
         for agent in participating_agents:
-            if isinstance(agent.allocator, DeconfounderAllocator):
+            if isinstance(agent.allocator, OracleAllocator):
                 bid, item = agent.bid(true_context)
             else:
                 bid, item = agent.bid(obs_context)
@@ -48,4 +50,5 @@ class Auction:
 
     def clear_revenue(self):
         self.revenue = 0.0
+
 

@@ -1,5 +1,12 @@
+import numpy as np
 import torch
-import torch.nn.functional as F
+from numba import jit
+from scipy.optimize import minimize
+from torch.nn import functional as F
+
+@jit(nopython=True)
+def sigmoid(x):
+    return 1.0 / (1.0 + np.exp(-x))
 
 class PyTorchLogisticRegression(torch.nn.Module):
     def __init__(self, n_dim, n_items):
@@ -47,7 +54,9 @@ class BidShadingPolicy(torch.nn.Module):
     def __init__(self):
         super(BidShadingPolicy, self).__init__()
         self.shared_linear = torch.nn.Linear(2, 2, bias=True)
+        self.mu_linear_hidden = torch.nn.Linear(2, 2)
         self.mu_linear_out = torch.nn.Linear(2, 1)
+        self.sigma_linear_hidden = torch.nn.Linear(2, 2)
         self.sigma_linear_out = torch.nn.Linear(2, 1)
         self.eval()
         self.min_sigma = 1e-2
@@ -81,7 +90,7 @@ class BidShadingContextualBandit(torch.nn.Module):
         criterion = torch.nn.MSELoss()
         losses = []
         best_epoch, best_loss = -1, np.inf
-        for epoch in range(int(epochs)):
+        for epoch in tqdm(range(int(epochs)), desc=f'Initialising Policy'):
             optimizer.zero_grad()
             predicted_mu_gammas = torch.nn.Softplus()(self.mu_linear_out(torch.nn.Softplus()(self.shared_linear(observed_contexts))))
             predicted_sigma_gammas = torch.nn.Softplus()(self.sigma_linear_out(torch.nn.Softplus()(self.shared_linear(observed_contexts))))
@@ -93,17 +102,20 @@ class BidShadingContextualBandit(torch.nn.Module):
                 best_epoch = epoch
                 best_loss = losses[-1]
             elif epoch - best_epoch > 512:
+                print(f'Stopping at Epoch {epoch}')
                 break
-
+        fig, ax = plt.subplots()
+        plt.title(f'Initialising policy')
+        plt.plot(losses, label=r'Loss')
+        plt.ylabel('MSE with logging policy')
+        plt.legend()
+        fig.set_tight_layout(True)
         print('Predicted mu Gammas: ', predicted_mu_gammas.min(), predicted_mu_gammas.max(), predicted_mu_gammas.mean())
         print('Predicted sigma Gammas: ', predicted_sigma_gammas.min(), predicted_sigma_gammas.max(), predicted_sigma_gammas.mean())
 
     def forward(self, x):
         x = self.shared_linear(x)
-        dist = torch.distributions.normal.Normal(
-            torch.nn.Softplus()(self.mu_linear_out(torch.nn.Softplus()(x))),
-            torch.nn.Softplus()(self.sigma_linear_out(torch.nn.Softplus()(x))) + self.min_sigma
-        )
+        dist = torch.distributions.normal.Normal(torch.nn.Softplus()(self.mu_linear_out(torch.nn.Softplus()(x))), torch.nn.Softplus()(self.sigma_linear_out(torch.nn.Softplus()(x))) + self.min_sigma)
         sampled_value = dist.rsample()
         propensity = torch.exp(dist.log_prob(sampled_value))
         sampled_value = torch.clip(sampled_value, min=0.0, max=1.0)
@@ -119,8 +131,7 @@ class BidShadingContextualBandit(torch.nn.Module):
 
     def loss(self, observed_context, observed_gamma, logging_propensity, utility, utility_estimates=None, winrate_model=None, KL_weight=5e-2, importance_weight_clipping_eps=torch.inf):
         mean_gamma_target, sigma_gamma_target, target_propensities = self.normal_pdf(observed_context, observed_gamma)
-
-        if self.loss_name == 'REINFORCE':
+        if (self.loss_name == 'REINFORCE'):
             return (-target_propensities * utility).mean()
         elif self.loss_name == 'REINFORCE_offpolicy':
             importance_weights = target_propensities / logging_propensity
