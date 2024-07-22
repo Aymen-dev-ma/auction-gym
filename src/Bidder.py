@@ -1,8 +1,9 @@
 import numpy as np
 import torch
-from sklearn.metrics import roc_auc_score
+import matplotlib.pyplot as plt
 from tqdm import tqdm
-from Models import PyTorchLogisticRegression, sigmoid
+from Models import BidShadingPolicy, PyTorchWinRateEstimator
+from sklearn.metrics import roc_auc_score
 
 class Bidder:
     def __init__(self, rng):
@@ -90,7 +91,12 @@ class EmpiricalShadedBidder(Bidder):
             plt.suptitle(name, fontsize=fontsize+2)
             plt.title(f'Iteration: {iteration}', fontsize=fontsize)
             plt.plot(x, estimated_y_mean, label='Estimate', ls='--', color='red')
-            plt.fill_between(x, estimated_y_mean - critical_value * estimated_y_stderr, estimated_y_mean + critical_value * estimated_y_stderr, alpha=.25, color='red', label='C.I.')
+            plt.fill_between(x,
+                             estimated_y_mean - critical_value * estimated_y_stderr,
+                             estimated_y_mean + critical_value * estimated_y_stderr,
+                             alpha=.25,
+                             color='red',
+                             label='C.I.')
             plt.axvline(best_gamma, ls='--', color='gray', label='Best')
             plt.axhline(0, ls='-.', color='gray')
             plt.xlabel(r'Multiplicative Bid Shading Factor ($\gamma$)', fontsize=fontsize)
@@ -100,6 +106,7 @@ class EmpiricalShadedBidder(Bidder):
             plt.yticks(fontsize=fontsize-2)
             plt.legend(fontsize=fontsize)
             plt.tight_layout()
+
     def clear_logs(self, memory):
         if not memory:
             self.gammas = []
@@ -351,18 +358,17 @@ class DoublyRobustBidder(Bidder):
     def update(self, contexts, values, bids, prices, outcomes, estimated_CTRs, won_mask, iteration, plot, figsize, fontsize, name):
         utilities = np.zeros_like(values)
         utilities[won_mask] = (values[won_mask] * outcomes[won_mask]) - prices[won_mask]
-        gammas_numpy = np.array([g.detach().item() if self.model_initialised else g for g in self.gammas])
         if self.model_initialised:
-            orig_features = torch.Tensor(np.hstack((estimated_CTRs.reshape(-1,1), values.reshape(-1,1), gammas_numpy.reshape(-1, 1))))
+            orig_features = torch.Tensor(np.hstack((estimated_CTRs.reshape(-1,1), values.reshape(-1,1), np.array(self.gammas).reshape(-1, 1))))
             W = self.winrate_model(orig_features).squeeze().detach().numpy()
             print('AUC predicting P(win):\t\t\t\t', roc_auc_score(won_mask.astype(np.uint8), W))
             V = estimated_CTRs * values
-            P = estimated_CTRs * values * gammas_numpy
+            P = estimated_CTRs * values * np.array(self.gammas)
             estimated_utilities = W * (V - P)
             errors = estimated_utilities - utilities
             print('Estimated Utility\t Mean Error:\t\t\t', errors.mean())
             print('Estimated Utility\t Mean Absolute Error:\t', np.abs(errors).mean())
-        X = np.hstack((estimated_CTRs.reshape(-1,1), values.reshape(-1,1), gammas_numpy.reshape(-1, 1)))
+        X = np.hstack((estimated_CTRs.reshape(-1,1), values.reshape(-1,1), np.array(self.gammas).reshape(-1, 1)))
         X_aug_neg = X.copy()
         X_aug_neg[:, -1] = 0.0
         X_aug_pos = X[won_mask].copy()
@@ -394,11 +400,11 @@ class DoublyRobustBidder(Bidder):
                 break
         losses = np.array(losses)
         self.winrate_model.eval()
-        orig_features = torch.Tensor(np.hstack((estimated_CTRs.reshape(-1,1), values.reshape(-1,1), gammas_numpy.reshape(-1, 1))))
+        orig_features = torch.Tensor(np.hstack((estimated_CTRs.reshape(-1,1), values.reshape(-1,1), np.array(self.gammas).reshape(-1, 1))))
         W = self.winrate_model(orig_features).squeeze().detach().numpy()
         print('AUC predicting P(win):\t\t\t\t', roc_auc_score(won_mask.astype(np.uint8), W))
         V = estimated_CTRs * values
-        P = estimated_CTRs * values * gammas_numpy
+        P = estimated_CTRs * values * np.array(self.gammas)
         estimated_utilities = W * (V - P)
         errors = estimated_utilities - utilities
         print('Estimated Utility\t Mean Error:\t\t\t', errors.mean())
